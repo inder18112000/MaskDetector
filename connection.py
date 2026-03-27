@@ -1,4 +1,14 @@
 import pymysql
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 def Connect():
-    conn = pymysql.connect(host="13.232.35.56", user="inderjit", password="inderjit@123", database="inderjit")
+    conn = pymysql.connect(
+        host=os.getenv("DB_HOST"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_NAME")
+    )
     return conn
