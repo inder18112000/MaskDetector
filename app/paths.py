@@ -12,10 +12,5 @@ class Images:
     DASHBOARD   = str(_ROOT / "assets" / "images" / "dashboard.png")
 
 
-class Cascades:
-    FACE  = str(_ROOT / "assets" / "cascades" / "front1.xml")
-    MOUTH = str(_ROOT / "assets" / "cascades" / "haarcascade_mcs_mouth.xml")
-
-
 class Models:
     MASK_DETECTOR = str(_ROOT / "assets" / "models" / "face_mask.pt")

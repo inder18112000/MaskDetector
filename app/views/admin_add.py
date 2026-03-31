@@ -89,7 +89,7 @@ class add:
 
     def __init__(self):
         self.roota = Tk()
-        self.roota.state("zoomed")
+        theme.maximize(self.roota)
         self.roota.title("Mask Detector — Add Admin")
         self.icon_photo = PhotoImage(file=Images.ICON)
         self.roota.iconphoto(False, self.icon_photo)
@@ -151,4 +151,5 @@ class add:
         theme.btn(btn_frame, "Send OTP & Create", self.checkLogin,
                   width=220).grid(row=0, column=1, padx=8)
 
+        theme.fade_in(self.roota)
         self.roota.mainloop()

@@ -6,142 +6,284 @@ from app.paths import Images
 from app.db import complaints as db_complaints
 from app.db import locations as db_locations
 from app import theme
+from app.validators import require, valid_email, valid_phone
+from PIL import Image, ImageTk
+
+# ── palette ──────────────────────────────────────────────────────────────────
+PRIMARY  = "#1a73e8"
+PRIMARY2 = "#1557b0"
+ACCENT   = "#ff6b35"
+CARD     = "#ffffff"
+INPUT    = "#f8f9fa"
+TEXT     = "#202124"
+MUTED    = "#5f6368"
+BORDER   = "#dadce0"
+SUCCESS  = "#34a853"
+DISABLED_BG  = "#efefef"
+DISABLED_FG  = "#aaaaaa"
 
 
 class comp:
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+    def _build_loc_map(self):
+        rows = db_locations.get_all_with_city()
+        self._loc_map = {}
+        for s_loc, city, place_name, area in rows:
+            if not city.strip():
+                continue
+            if place_name.strip() and area.strip():
+                key = f"{city} — {place_name} — {area}"
+            else:
+                key = f"{city} — {s_loc}"
+            self._loc_map[key] = s_loc
+        return sorted(self._loc_map.keys())
+
+    def _resize_bg(self, event=None):
+        w = self.com.winfo_width()
+        h = self.com.winfo_height()
+        if w < 10 or h < 10:
+            return
+        img = Image.open(self._bg_src).resize((w, h), Image.LANCZOS).convert('RGBA')
+        # Dark overlay so the white card stands out clearly
+        overlay = Image.new('RGBA', (w, h), (0, 0, 0, 150))
+        img = Image.alpha_composite(img, overlay).convert('RGB')
+        self._bg_photo = ImageTk.PhotoImage(img)
+        self._bg_label.config(image=self._bg_photo)
+
+    def _section_header(self, parent, text, row):
+        """Render a section label with a coloured left-accent bar."""
+        f = Frame(parent, bg=CARD)
+        f.grid(row=row, column=0, columnspan=4, sticky=EW, pady=(18, 6))
+        Frame(f, bg=PRIMARY, width=3, height=16).pack(side=LEFT)
+        Label(f, text=f"  {text}",
+              font=('Helvetica', 10, 'bold'), bg=CARD,
+              fg=MUTED).pack(side=LEFT)
+
+    def _field(self, parent, label, row, col, colspan=1, width=22):
+        """Label + Entry helper. Returns the Entry widget."""
+        Label(parent, text=label,
+              font=('Helvetica', 10, 'bold'), bg=CARD,
+              fg=MUTED, anchor=W).grid(
+              row=row, column=col, columnspan=colspan,
+              sticky=W, padx=(4, 4), pady=(0, 3))
+        e = Entry(parent, font=('Helvetica', 12), width=width,
+                  bg=INPUT, fg=TEXT, relief=FLAT,
+                  highlightthickness=1,
+                  highlightbackground=BORDER,
+                  highlightcolor=PRIMARY,
+                  insertbackground=TEXT)
+        e.grid(row=row + 1, column=col, columnspan=colspan,
+               ipady=8, padx=(4, 4), pady=(0, 4), sticky=EW)
+        return e
+
+    # ── actions ───────────────────────────────────────────────────────────────
     def back(self):
         self.com.destroy()
         from app.views.login import log
         log()
 
+    def ShowChoice(self):
+        is_other = str(self.r.get()) == "other"
+        self.T.config(
+            state=NORMAL if is_other else DISABLED,
+            bg=INPUT if is_other else DISABLED_BG,
+            fg=TEXT if is_other else DISABLED_FG,
+        )
+        if not is_other:
+            self.T.delete(1.0, END)
+        self._desc_hint.config(
+            text="" if is_other else "Enable by selecting 'Other' above")
+
     def sub_comp(self):
-        if str(self.r.get()) == "other":
-            self.report = self.T.get(1.0, "end-1c").strip()
-        else:
-            self.report = str(self.r.get())
+        name  = self.name_e.get().strip()
+        phone = self.phone_e.get().strip()
+        email = self.email_e.get().strip()
+        loc   = self._loc_map.get(self.s_loc.get(), "")
 
-        name  = self.name.get().strip()
-        phone = self.phone.get().strip()
-        email = self.email.get().strip()
-        loc   = self.s_loc.get()
-
-        if not name or not phone or not email or not loc:
-            showerror('Missing Fields', 'Please fill in all required fields.')
+        if not require([("your full name", self.name_e),
+                        ("your phone number", self.phone_e),
+                        ("your email address", self.email_e)]):
             return
+        if not valid_phone(phone, self.phone_e):
+            return
+        if not valid_email(email, self.email_e):
+            return
+        if not loc:
+            if not self._loc_map:
+                showerror('No Locations',
+                          'No surveillance locations are configured yet.\n'
+                          'Please contact an administrator.')
+            else:
+                showerror('Missing Field', 'Please select a surveillance location.')
+            return
+
+        if str(self.r.get()) == "other":
+            report = self.T.get(1.0, "end-1c").strip()
+            if not report:
+                showerror('Missing Description',
+                          'Please describe the violation in the description box.')
+                self.T.focus(); return
+        else:
+            report = str(self.r.get())
 
         if db_complaints.get_by_email(email) is not None:
-            showerror('', 'A complaint has already been registered with this email.')
-            return
+            showerror('Already Submitted',
+                      'A complaint has already been registered with this email address.')
+            self.email_e.focus(); return
 
-        db_complaints.create(name, phone, email, self.report, loc)
-        showinfo("Submitted", "Your complaint has been registered successfully.")
-        sms_sending.send_sms(phone)
-        self.com.destroy()
-        from app.views.login import log
-        log()
+        cid = db_complaints.create(name, phone, email, report, loc)
+        try:
+            sms_sending.send_sms(phone)
+        except Exception:
+            pass
 
-    def ShowChoice(self):
-        self.T.config(state=DISABLED)
-        self.T.delete(1.0, END)
-        if str(self.r.get()) == "other":
-            self.T.config(state=NORMAL)
+        # ── Confirmation card ─────────────────────────────────────────────────
+        for w in self.card.winfo_children():
+            w.destroy()
 
+        conf = Frame(self.card, bg=CARD, padx=52, pady=44)
+        conf.pack()
+        Label(conf, text="✔  Complaint Registered",
+              font=('Helvetica', 20, 'bold'), bg=CARD, fg=SUCCESS).pack(pady=(0, 10))
+        Frame(conf, bg=BORDER, height=1).pack(fill=X, pady=(0, 20))
+        Label(conf, text="Reference Number",
+              font=('Helvetica', 11), bg=CARD, fg=MUTED).pack()
+        Label(conf, text=f"CMP-{cid:04d}",
+              font=('Helvetica', 30, 'bold'), bg=CARD, fg=PRIMARY).pack(pady=(4, 14))
+        Label(conf,
+              text=f"An SMS confirmation has been sent to {phone}.",
+              font=('Helvetica', 11), bg=CARD, fg=MUTED).pack(pady=(0, 28))
+        theme.btn(conf, "← Back to Login", self.back, width=220).pack()
+
+    # ── init ──────────────────────────────────────────────────────────────────
     def __init__(self):
         self.com = Tk()
-        self.com.state("zoomed")
+        self.com.withdraw()          # hide default small window immediately
+        theme.maximize(self.com)
         self.com.title("Mask Detector — Register Complaint")
         self.icon_photo = PhotoImage(file=Images.ICON)
         self.com.iconphoto(False, self.icon_photo)
 
-        # Background
-        self.bg_photo = PhotoImage(file=Images.COMP_BG)
-        Label(self.com, image=self.bg_photo, bd=0).place(x=0, y=0, relwidth=1, relheight=1)
+        # Resizable background (same image as login, darkened overlay applied in _resize_bg)
+        self._bg_src   = Images.FRONT_LOGIN
+        self._bg_label = Label(self.com, bd=0)
+        self._bg_label.place(x=0, y=0, relwidth=1, relheight=1)
+        self.com.bind("<Configure>", self._resize_bg)
+        self.com.update_idletasks()
+        self._resize_bg()
 
-        # ── Card ─────────────────────────────────────────────────────────────
-        card = Frame(self.com, bg=theme.L_CARD, padx=40, pady=32)
-        card.place(relx=0.5, rely=0.5, anchor=CENTER)
+        # ── Outer card (shadow effect via offset frame) ───────────────────────
+        shadow = Frame(self.com, bg="#cccccc")
+        shadow.place(relx=0.502, rely=0.502, anchor=CENTER)
 
-        Label(card, text="Register a Complaint",
-              font=theme.F_TITLE, bg=theme.L_CARD, fg=theme.L_PANEL).grid(
-              row=0, column=0, columnspan=2, pady=(0, 4))
-        Label(card, text="Report mask or social distancing violations",
-              font=theme.F_SMALL, bg=theme.L_CARD, fg=theme.L_MUTED).grid(
-              row=1, column=0, columnspan=2, pady=(0, 16))
-
-        Frame(card, bg=theme.L_BORDER, height=1).grid(
-              row=2, column=0, columnspan=2, sticky=EW, pady=(0, 14))
+        card = Frame(shadow, bg=CARD)
+        card.pack(padx=(0, 3), pady=(0, 3))
+        self.card = card
 
         style = Style()
-        style.configure('my.TCombobox', arrowsize=20)
+        style.configure('comp.TCombobox', arrowsize=20, font=('Helvetica', 12))
 
-        entry_cfg = dict(font=theme.F_ENTRY, width=34,
-                         bg=theme.L_INPUT, fg=theme.L_TEXT,
-                         relief=FLAT, highlightthickness=1,
-                         highlightbackground=theme.L_BORDER,
-                         highlightcolor=theme.L_PANEL,
-                         insertbackground=theme.L_TEXT)
+        # ── Coloured header band ──────────────────────────────────────────────
+        header = Frame(card, bg=PRIMARY, padx=36, pady=22)
+        header.grid(row=0, column=0, sticky=EW)
 
-        for row, label in [(3, "Full Name"), (4, "Phone Number"), (5, "Email Address")]:
-            Label(card, text=label, font=theme.F_SUB,
-                  bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).grid(
-                  row=row, column=0, sticky=W, padx=(0, 16), pady=4)
+        # Back button — top-left of header, always visible
+        theme.btn(header, "← Back", self.back,
+                  bg=PRIMARY2, fg="white", width=90, height=30,
+                  font=('Helvetica', 10, 'bold')).pack(anchor=W, pady=(0, 10))
 
-        self.name  = Entry(card, **entry_cfg)
-        self.name.grid(row=3, column=1, ipady=7, pady=4)
-        self.phone = Entry(card, **entry_cfg)
-        self.phone.grid(row=4, column=1, ipady=7, pady=4)
-        self.email = Entry(card, **entry_cfg)
-        self.email.grid(row=5, column=1, ipady=7, pady=4)
+        Label(header, text="Register a Complaint",
+              font=('Helvetica', 20, 'bold'),
+              bg=PRIMARY, fg="white").pack(anchor=W)
+        Label(header, text="Report mask non-compliance at a surveillance location",
+              font=('Helvetica', 10),
+              bg=PRIMARY, fg="#c8d8f8").pack(anchor=W, pady=(3, 0))
 
-        Label(card, text="Surveillance Location", font=theme.F_SUB,
-              bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).grid(
-              row=6, column=0, sticky=W, padx=(0, 16), pady=4)
-        self.s_loc = Combobox(card, values=db_locations.get_all(),
-                              font=theme.F_ENTRY, width=32,
-                              state='readonly', style='my.TCombobox')
-        self.s_loc.grid(row=6, column=1, ipady=4, pady=4)
+        # ── Form body ─────────────────────────────────────────────────────────
+        body = Frame(card, bg=CARD, padx=36, pady=20)
+        body.grid(row=1, column=0, sticky=NSEW)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=0, minsize=16)   # gutter
+        body.columnconfigure(2, weight=1)
+        body.columnconfigure(3, weight=0)
 
-        Label(card, text="Violation Type", font=theme.F_SUB,
-              bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).grid(
-              row=7, column=0, sticky=W, padx=(0, 16), pady=(12, 4))
+        # ── Personal info ─────────────────────────────────────────────────────
+        self._section_header(body, "PERSONAL INFORMATION", row=0)
+
+        self.name_e  = self._field(body, "Full Name",     row=1, col=0, colspan=1, width=20)
+        self.phone_e = self._field(body, "Phone Number",  row=1, col=2, colspan=2, width=20)
+        self.email_e = self._field(body, "Email Address", row=3, col=0, colspan=4, width=46)
+
+        # ── Location ──────────────────────────────────────────────────────────
+        self._section_header(body, "SURVEILLANCE LOCATION", row=5)
+
+        self._loc_map = {}
+        loc_vals = self._build_loc_map()
+
+        Label(body, text="Select Location",
+              font=('Helvetica', 10, 'bold'), bg=CARD, fg=MUTED, anchor=W).grid(
+              row=6, column=0, columnspan=4, sticky=W, padx=4, pady=(0, 3))
+        self.s_loc = Combobox(body, values=loc_vals,
+                              font=('Helvetica', 12), width=44,
+                              state='readonly', style='comp.TCombobox')
+        self.s_loc.grid(row=7, column=0, columnspan=4,
+                        ipady=6, padx=4, pady=(0, 4), sticky=EW)
+
+        # ── Violation type ────────────────────────────────────────────────────
+        self._section_header(body, "VIOLATION TYPE", row=8)
 
         self.r = StringVar(value="Wearing Mask Violation")
-        radio_frame = Frame(card, bg=theme.L_CARD)
-        radio_frame.grid(row=7, column=1, sticky=W, pady=(12, 4))
+        rf = Frame(body, bg=INPUT, bd=0, highlightthickness=1,
+                   highlightbackground=BORDER)
+        rf.grid(row=9, column=0, columnspan=4, sticky=EW, padx=4, pady=(0, 4))
 
         for text, val in [
-            ("Mask Violation",              "Wearing Mask Violation"),
-            ("Social Distancing Violation", "Social Distancing Violation"),
-            ("Other (describe below)",      "other"),
+            ("🦺  Mask Not Worn",              "Wearing Mask Violation"),
+            ("↔️  Social Distancing Violation", "Social Distancing Violation"),
+            ("✏️  Other (describe below)",      "other"),
         ]:
-            Radiobutton(radio_frame, text=text, variable=self.r, value=val,
-                        font=theme.F_BODY, bg=theme.L_CARD, fg=theme.L_TEXT,
-                        activebackground=theme.L_CARD,
-                        selectcolor=theme.L_INPUT,
-                        command=self.ShowChoice).pack(anchor=W)
+            rb = Radiobutton(rf, text=f"  {text}", variable=self.r, value=val,
+                             font=('Helvetica', 11), bg=INPUT, fg=TEXT,
+                             activebackground=INPUT, selectcolor=CARD,
+                             command=self.ShowChoice,
+                             padx=12, pady=5,
+                             indicatoron=True)
+            rb.pack(anchor=W, fill=X)
+            Frame(rf, bg=BORDER, height=1).pack(fill=X)
 
-        Label(card, text="Description", font=theme.F_SUB,
-              bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).grid(
-              row=8, column=0, sticky=NW, padx=(0, 16), pady=(8, 4))
-        self.T = Text(card, font=theme.F_ENTRY, height=5, width=34,
-                      bg=theme.L_INPUT, fg=theme.L_TEXT,
-                      relief=FLAT, highlightthickness=1,
-                      highlightbackground=theme.L_BORDER,
-                      highlightcolor=theme.L_PANEL,
-                      insertbackground=theme.L_TEXT,
-                      padx=8, pady=6)
-        self.T.grid(row=8, column=1, pady=(8, 4))
+        # ── Description ───────────────────────────────────────────────────────
+        self._section_header(body, "ADDITIONAL DESCRIPTION", row=10)
+
+        self._desc_hint = Label(body,
+                                text="Enable by selecting 'Other' above",
+                                font=('Helvetica', 9, 'italic'),
+                                bg=CARD, fg=DISABLED_FG, anchor=W)
+        self._desc_hint.grid(row=11, column=0, columnspan=4,
+                             sticky=W, padx=4, pady=(0, 3))
+
+        self.T = Text(body, font=('Helvetica', 12), height=4, width=46,
+                      bg=DISABLED_BG, fg=DISABLED_FG, relief=FLAT,
+                      highlightthickness=1, highlightbackground=BORDER,
+                      highlightcolor=PRIMARY, insertbackground=TEXT,
+                      padx=10, pady=8)
+        self.T.grid(row=12, column=0, columnspan=4,
+                    padx=4, pady=(0, 4), sticky=EW)
         self.T.config(state=DISABLED)
 
-        Frame(card, bg=theme.L_BORDER, height=1).grid(
-              row=9, column=0, columnspan=2, sticky=EW, pady=14)
+        # ── Footer ────────────────────────────────────────────────────────────
+        footer = Frame(card, bg="#f5f7fa", padx=36, pady=16)
+        footer.grid(row=2, column=0, sticky=EW)
 
-        btn_row = Frame(card, bg=theme.L_CARD)
-        btn_row.grid(row=10, column=0, columnspan=2)
+        Frame(footer, bg=BORDER, height=1).pack(fill=X, pady=(0, 14))
 
-        theme.btn(btn_row, "← Back", self.back,
-                  bg=theme.L_MUTED, width=160).grid(row=0, column=0, padx=8)
-        theme.btn(btn_row, "Submit Complaint", self.sub_comp,
-                  bg=theme.ACCENT, width=200).grid(row=0, column=1, padx=8)
+        btn_row = Frame(footer, bg="#f5f7fa")
+        btn_row.pack()
 
+        theme.btn(btn_row, "✔  Submit Complaint", self.sub_comp,
+                  bg=SUCCESS, width=220).pack()
+
+        self.name_e.focus()
+        self.com.deiconify()
+        theme.fade_in(self.com)
         self.com.mainloop()

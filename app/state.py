@@ -1,12 +1,12 @@
 """
-Shared application state.
+Backward-compatibility shim — kept so old import paths still work.
 
-These are the global variables that cross view boundaries:
-  - result : login row tuple (username, email, password, role)
-  - mode   : 1 = dark dashboard, 2 = light dashboard
-  - vid    : active cv2.VideoCapture instance (released on camera stop)
+New code should use app.session.AppSession instead of these globals.
 """
 
-result = None
-mode = None
-vid = None
+from app.session import AppSession as _AppSession
+
+# These three names are still importable for legacy callers.
+result = None   # login row tuple OR AppSession instance
+mode   = None   # 1 = dark, 2 = light  (use session.theme instead)
+vid    = None   # cv2.VideoCapture      (use session.capture instead)

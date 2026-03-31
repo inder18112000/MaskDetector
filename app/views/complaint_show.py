@@ -8,7 +8,7 @@ from app import theme
 class comp_show:
     def __init__(self):
         self.root = Tk()
-        self.root.state('zoomed')
+        theme.maximize(self.root)
         self.root.title('Mask Detector — Registered Complaints')
         self.root.config(bg=theme.L_BG)
 
@@ -61,9 +61,13 @@ class comp_show:
         sb = Scrollbar(tree_frame, orient=VERTICAL, command=self.obj.yview)
         self.obj.configure(yscrollcommand=sb.set)
         sb.pack(side=RIGHT, fill=Y)
+        sb_h = Scrollbar(tree_frame, orient=HORIZONTAL, command=self.obj.xview)
+        self.obj.configure(xscrollcommand=sb_h.set)
+        sb_h.pack(side=BOTTOM, fill=X)
         self.obj.pack(fill=BOTH, expand=True)
 
         self.search()
+        theme.fade_in(self.root)
         self.root.mainloop()
 
     def search(self):

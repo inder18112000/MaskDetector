@@ -4,11 +4,12 @@ from tkinter.messagebox import *
 import secrets
 import otp
 import app.state as state
+from app.session import AppSession
 from app.paths import Images
 from app.db import users as db_users
 from app.security import verify_password
 from app import theme
-from PIL import Image, ImageTk
+from PIL import Image, ImageTk, ImageDraw, ImageFont
 
 # ── Theme ────────────────────────────────────────────────────────────────────
 PRIMARY      = "#1a73e8"
@@ -27,23 +28,31 @@ SUCCESS      = "#34a853"
 class log:
     def __init__(self):
         self.root = Tk()
-        self.root.state("zoomed")
-        self.root.geometry("1550x766")
+        theme.maximize(self.root)
         self.root.title("MASK DETECTOR")
 
         self.icon_photo = PhotoImage(file=Images.ICON)
         self.root.iconphoto(False, self.icon_photo)
 
-        # Background image (JPEG loaded via PIL)
-        sw = self.root.winfo_screenwidth()
-        sh = self.root.winfo_screenheight()
-        _img = Image.open(Images.FRONT_LOGIN).resize((sw, sh), Image.LANCZOS)
-        self.bg_photo = ImageTk.PhotoImage(_img)
-        Label(self.root, image=self.bg_photo, bd=0).place(x=0, y=0, relwidth=1, relheight=1)
+        # Background image — resizes with the window
+        self._bg_src = Images.FRONT_LOGIN
+        self._bg_label = Label(self.root, bd=0)
+        self._bg_label.place(x=0, y=0, relwidth=1, relheight=1)
 
-        # ── Register Complaints button (top-right) ───────────────────────────
-        theme.btn(self.root, "⚠  Register Complaint", self.complaint,
-                  bg=ACCENT, width=220).pack(padx=16, pady=16, anchor=NE)
+        # ── Register Complaints button (top-right, ghost style) ──────────────
+        # Rendered as a PIL RGBA image composited over the background photo so
+        # the button corners are truly transparent (no canvas rectangle artifacts).
+        self._complaint_photo = None
+        self._complaint_btn = Label(self.root, bd=0, cursor="hand2",
+                                    highlightthickness=0)
+        self._complaint_btn.bind("<ButtonPress-1>",   lambda e: self._complaint_btn.config(image=self._complaint_press_photo))
+        self._complaint_btn.bind("<ButtonRelease-1>", lambda e: (self._complaint_btn.config(image=self._complaint_hover_photo), self.complaint()))
+        self._complaint_btn.bind("<Enter>",           lambda e: self._complaint_btn.config(image=self._complaint_hover_photo))
+        self._complaint_btn.bind("<Leave>",           lambda e: self._complaint_btn.config(image=self._complaint_photo))
+
+        self.root.bind("<Configure>", self._resize_bg)
+        self.root.update_idletasks()
+        self._resize_bg()
 
         # ── Login card ───────────────────────────────────────────────────────
         card = Frame(self.root, bg=BG_CARD, padx=40, pady=36)
@@ -113,7 +122,67 @@ class log:
         )
         forgot_btn.grid(row=8, column=0, columnspan=2, pady=(0, 4))
 
+        theme.fade_in(self.root)
         self.root.mainloop()
+
+    # ── Ghost button rendering ────────────────────────────────────────────────
+    _BTN_W, _BTN_H, _BTN_PAD, _BTN_R = 220, 38, 16, 10
+
+    def _make_complaint_overlay(self, fill_alpha, border_rgba, text_rgba):
+        """Return a PIL RGBA overlay image for the complaint button."""
+        overlay = Image.new('RGBA', (self._BTN_W, self._BTN_H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(overlay)
+        # Semi-transparent dark backdrop for contrast
+        d.rounded_rectangle(
+            [(0, 0), (self._BTN_W - 1, self._BTN_H - 1)],
+            radius=self._BTN_R, fill=(0, 0, 0, fill_alpha), outline=border_rgba, width=2,
+        )
+        try:
+            fnt = ImageFont.truetype('/System/Library/Fonts/Helvetica.ttc', 14)
+        except Exception:
+            try:
+                fnt = ImageFont.truetype('/System/Library/Fonts/Arial.ttf', 14)
+            except Exception:
+                fnt = ImageFont.load_default()
+        text = "⚠  Register Complaint"
+        bbox = d.textbbox((0, 0), text, font=fnt)
+        tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        d.text(((self._BTN_W - tw) // 2 - bbox[0],
+                (self._BTN_H - th) // 2 - bbox[1]),
+               text, font=fnt, fill=text_rgba)
+        return overlay
+
+    def _composite_btn(self, bg_img, fill_alpha, border_rgba, text_rgba):
+        """Crop bg at button area, composite overlay, return PhotoImage."""
+        bx = bg_img.width - self._BTN_W - self._BTN_PAD
+        by = self._BTN_PAD
+        crop = bg_img.crop((bx, by, bx + self._BTN_W, by + self._BTN_H)).convert('RGBA')
+        composited = Image.alpha_composite(
+            crop, self._make_complaint_overlay(fill_alpha, border_rgba, text_rgba))
+        return ImageTk.PhotoImage(composited), bx, by
+
+    def _resize_bg(self, event=None):
+        w = self.root.winfo_width()
+        h = self.root.winfo_height()
+        if w < 10 or h < 10:
+            return
+        img = Image.open(self._bg_src).resize((w, h), Image.LANCZOS)
+        self._bg_photo = ImageTk.PhotoImage(img)
+        self._bg_label.config(image=self._bg_photo)
+
+        # Recomposite complaint button at all three states
+        # Normal: dark backdrop + white border + white text
+        self._complaint_photo,       bx, by = self._composite_btn(
+            img, 110, (255, 255, 255, 220), (255, 255, 255, 255))
+        # Hover: slightly brighter backdrop + orange border + orange text
+        self._complaint_hover_photo, _,  _  = self._composite_btn(
+            img, 150, (255, 107, 53, 255), (255, 107, 53, 255))
+        # Press: strong dark backdrop + orange
+        self._complaint_press_photo, _,  _  = self._composite_btn(
+            img, 190, (200,  80, 20, 255), (200,  80, 20, 255))
+        self._complaint_btn.config(image=self._complaint_photo)
+        self._complaint_btn.place(x=bx, y=by,
+                                  width=self._BTN_W, height=self._BTN_H)
 
     # ── Navigation ───────────────────────────────────────────────────────────
     def complaint(self):
@@ -122,11 +191,9 @@ class log:
         comp()
 
     def fp(self):
-        self.root.destroy()
         from app.views.forgot_password import forgot
         obj1 = forgot()
-        obj1.password()
-        log()
+        obj1.password(parent=self.root)
 
     # ── Login logic ──────────────────────────────────────────────────────────
     def checkLogin(self):
@@ -143,9 +210,10 @@ class log:
             return
 
         self.result = user
+        self.session = AppSession.from_row(user, theme="light")
         if self.result[3] == "Super Admin":
             try:
-                self.str1 = otp.send(self.result[1])
+                self.str1 = otp.send(self.result[1], purpose="login")
             except otp.OTPSendError as e:
                 showerror('Email Error', str(e))
                 return
@@ -153,9 +221,9 @@ class log:
         else:
             showinfo('Welcome', f'Login successful. Welcome, {self.result[0]}!')
             self.root.destroy()
-            state.result = self.result
-            from app.views.dashboard_light import dasboard_light
-            dasboard_light(state.result)
+            state.result = self.session
+            from app.views.dashboard import Dashboard, LIGHT_PALETTE
+            Dashboard(self.session, LIGHT_PALETTE)
 
     def _show_otp_window(self):
         self.root1 = Toplevel(self.root)
@@ -188,8 +256,14 @@ class log:
                         highlightbackground=BORDER,
                         highlightcolor=PRIMARY,
                         insertbackground=PRIMARY)
-        self.e1.pack(ipady=10, pady=(0, 20))
+        self.e1.pack(ipady=10, pady=(0, 8))
         self.e1.focus()
+
+        self._otp_attempts_left = 3
+        self._otp_attempts_lbl = Label(frame, text="3 attempts remaining",
+                                       font=('Helvetica', 10),
+                                       bg=BG_CARD, fg=TEXT_MID)
+        self._otp_attempts_lbl.pack(pady=(0, 14))
 
         self.root1.bind('<Return>', lambda e: self.press())
 
@@ -200,10 +274,21 @@ class log:
             showinfo('Welcome', f'Login successful. Welcome, {self.result[0]}!')
             self.root1.destroy()
             self.root.destroy()
-            state.result = self.result
-            from app.views.dashboard_light import dasboard_light
-            dasboard_light(state.result)
+            state.result = self.session
+            from app.views.dashboard import Dashboard, LIGHT_PALETTE
+            Dashboard(self.session, LIGHT_PALETTE)
         elif self.e1.get() == "":
             showerror("Error", "Please enter the OTP.")
         else:
+            self._otp_attempts_left -= 1
+            if self._otp_attempts_left <= 0:
+                self.root1.destroy()
+                showerror("Too Many Attempts",
+                          "Too many incorrect attempts. Please try again later.")
+                return
+            rem = self._otp_attempts_left
+            self._otp_attempts_lbl.config(
+                text=f"{rem} attempt{'s' if rem != 1 else ''} remaining",
+                fg=theme.DANGER,
+            )
             showerror("Error", "Incorrect OTP. Please try again.")

@@ -16,7 +16,7 @@ class view:
 
     def __init__(self):
         self.root = Tk()
-        self.root.state('zoomed')
+        theme.maximize(self.root)
         self.root.title('Mask Detector — View Admins')
         self.root.config(bg=theme.L_BG)
 
@@ -54,6 +54,7 @@ class view:
         self.getValues()
         self.obj.bind('<Double-1>', self.onDoubleClick)
         self.obj.pack(fill=BOTH, expand=True)
+        theme.fade_in(self.root)
         self.root.mainloop()
 
     def onDoubleClick(self, event):
@@ -76,27 +77,29 @@ class view:
         Label(f, text="Edit Admin Account",
               font=theme.F_HEAD, bg=theme.L_CARD, fg=theme.L_TEXT).pack(pady=(0, 20))
 
-        for label in ["Email", "Username", "Role"]:
-            Label(f, text=label, font=theme.F_SUB,
-                  bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).pack(fill=X)
-
+        Label(f, text="Email", font=theme.F_SUB,
+              bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).pack(fill=X)
         self.txt1 = Entry(f, font=theme.F_ENTRY, width=44,
                           bg=theme.L_INPUT, fg=theme.L_MUTED,
                           relief=FLAT, highlightthickness=1,
                           highlightbackground=theme.L_BORDER)
-        self.txt1.pack(ipady=6, pady=(2, 10))
+        self.txt1.pack(ipady=6, pady=(2, 12))
         self.txt1.insert(0, self.items[1])
         self.txt1.config(state='readonly')
 
+        Label(f, text="Username", font=theme.F_SUB,
+              bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).pack(fill=X)
         self.txt2 = Entry(f, font=theme.F_ENTRY, width=44,
                           bg=theme.L_INPUT, fg=theme.L_TEXT,
                           relief=FLAT, highlightthickness=1,
                           highlightbackground=theme.L_BORDER,
                           highlightcolor=theme.L_PANEL,
                           insertbackground=theme.L_TEXT)
-        self.txt2.pack(ipady=6, pady=(2, 10))
+        self.txt2.pack(ipady=6, pady=(2, 12))
         self.txt2.insert(0, self.items[0])
 
+        Label(f, text="Role", font=theme.F_SUB,
+              bg=theme.L_CARD, fg=theme.L_TEXT, anchor=W).pack(fill=X)
         self.txt3 = Combobox(f, values=['Super Admin', 'Admin'],
                              font=theme.F_ENTRY, width=42, state='readonly')
         self.txt3.pack(ipady=4, pady=(2, 20))

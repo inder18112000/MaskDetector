@@ -9,16 +9,35 @@ from app import theme
 
 
 class forgot:
-    def password(self):
-        self.rootf = Tk()
-        self.rootf.state("zoomed")
-        self.rootf.title("Mask Detector — Reset Password")
-        self.icon_photo = PhotoImage(file=Images.ICON)
-        self.rootf.iconphoto(False, self.icon_photo)
+    def password(self, parent=None):
+        """Open the Reset Password screen.
+
+        When *parent* is supplied the screen opens as a modal Toplevel over the
+        login window.  When called standalone (parent=None) it behaves as before,
+        creating its own Tk() root.
+        """
+        if parent is None:
+            self.rootf = Tk()
+            theme.maximize(self.rootf)
+            self.rootf.title("Mask Detector — Reset Password")
+            self.icon_photo = PhotoImage(file=Images.ICON)
+            self.rootf.iconphoto(False, self.icon_photo)
+            _standalone = True
+        else:
+            self.rootf = Toplevel(parent)
+            sw = parent.winfo_screenwidth()
+            sh = parent.winfo_screenheight()
+            w, h = 700, 580
+            self.rootf.geometry(f"{w}x{h}+{(sw - w) // 2}+{(sh - h) // 2}")
+            self.rootf.title("Mask Detector — Reset Password")
+            self.rootf.resizable(False, False)
+            self.rootf.grab_set()
+            _standalone = False
 
         # Background
         self.bg_photo = PhotoImage(file=Images.BG_FG)
-        Label(self.rootf, image=self.bg_photo, bd=0).place(x=0, y=0, relwidth=1, relheight=1)
+        Label(self.rootf, image=self.bg_photo, bd=0).place(
+            x=0, y=0, relwidth=1, relheight=1)
 
         # ── Card ─────────────────────────────────────────────────────────────
         card = Frame(self.rootf, bg=theme.L_CARD, padx=40, pady=36)
@@ -52,7 +71,9 @@ class forgot:
               row=4, column=0, columnspan=2, pady=16)
 
         self.bf2 = card
-        self.rootf.mainloop()
+        theme.fade_in(self.rootf)
+        if _standalone:
+            self.rootf.mainloop()
 
     def gen(self):
         if not self.e1.get().strip():
@@ -63,7 +84,7 @@ class forgot:
             showerror('Not Found', 'No account found for that email.')
             return
         try:
-            self.str1 = otp.send(self.result[1])
+            self.str1 = otp.send(self.result[1], purpose="reset")
         except otp.OTPSendError as e:
             showerror('Email Error', str(e))
             return

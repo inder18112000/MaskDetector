@@ -15,7 +15,7 @@ class showsurv:
 
     def __init__(self):
         self.root = Tk()
-        self.root.state('zoomed')
+        theme.maximize(self.root)
         self.root.title('Mask Detector — Surveillance History')
         self.root.config(bg=theme.L_BG)
 
@@ -38,16 +38,18 @@ class showsurv:
         tree_frame = Frame(self.root, bg=theme.L_BG)
         tree_frame.pack(fill=BOTH, expand=True, padx=24, pady=8)
 
-        col = ('ID', 'Location', 'Date', 'Start', 'End', 'Masked %', 'Unmasked %')
+        col = ('ID', 'City', 'Place', 'Area', 'Date', 'Start', 'End',
+               'Masked %', 'Unmasked %', 'Total Persons')
         self.obj = Treeview(tree_frame, columns=col,
                             style="Custom.Treeview", selectmode='browse')
         for i in col:
             self.obj.heading(i, text=i)
 
-        widths = {'ID': 50, 'Location': 180, 'Date': 120,
-                  'Start': 100, 'End': 100, 'Masked %': 120, 'Unmasked %': 120}
+        widths = {'ID': 50, 'City': 110, 'Place': 160, 'Area': 120,
+                  'Date': 100, 'Start': 80, 'End': 80,
+                  'Masked %': 90, 'Unmasked %': 90, 'Total Persons': 90}
         for c in col:
-            self.obj.column(c, width=widths.get(c, 120), anchor=CENTER)
+            self.obj.column(c, width=widths.get(c, 100), anchor=CENTER)
         self.obj['show'] = 'headings'
 
         self.obj.tag_configure('even', background=theme.L_INPUT)
@@ -56,7 +58,11 @@ class showsurv:
         sb = Scrollbar(tree_frame, orient=VERTICAL, command=self.obj.yview)
         self.obj.configure(yscrollcommand=sb.set)
         sb.pack(side=RIGHT, fill=Y)
+        sb_h = Scrollbar(tree_frame, orient=HORIZONTAL, command=self.obj.xview)
+        self.obj.configure(xscrollcommand=sb_h.set)
+        sb_h.pack(side=BOTTOM, fill=X)
         self.obj.pack(fill=BOTH, expand=True)
 
         self.getValues()
+        theme.fade_in(self.root)
         self.root.mainloop()

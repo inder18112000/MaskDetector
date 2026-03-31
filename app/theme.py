@@ -1,3 +1,5 @@
+import platform as _platform
+
 # ── Shared UI Theme ──────────────────────────────────────────────────────────
 
 # Light palette
@@ -47,7 +49,8 @@ F_TABLE   = ('Helvetica', 11)
 class StyledButton:
     """
     A Canvas-based button that works correctly on macOS.
-    Supports custom bg/fg colours, hover effects, and disabled state.
+    Supports custom bg/fg colours, hover effects, disabled state, and ghost
+    (outline-only, transparent background) mode.
     """
 
     def __init__(self, parent, text, command,
@@ -65,10 +68,19 @@ class StyledButton:
         self._disabled = False
         self._text     = text
 
+        # Resolve system-level color names (e.g. macOS 'systemWindowBackgroundColor')
+        try:
+            _cbg = parent.cget('bg')
+            if _cbg and not _cbg.startswith('#'):
+                _r, _g, _b = parent.winfo_rgb(_cbg)
+                _cbg = f'#{_r//256:02x}{_g//256:02x}{_b//256:02x}'
+        except Exception:
+            _cbg = parent.cget('bg')
+
         self.canvas = __import__('tkinter').Canvas(
             parent,
             width=width, height=height,
-            bg=parent.cget('bg'),
+            bg=_cbg,
             highlightthickness=0,
             cursor="hand2",
         )
@@ -104,6 +116,11 @@ class StyledButton:
         if 'text' in kw:
             self._text = kw['text']
             self._draw(self._bg)
+
+    def __getitem__(self, key):
+        if key == 'state':
+            return 'disabled' if self._disabled else 'normal'
+        raise KeyError(key)
 
     def __setitem__(self, key, value):
         self.config(**{key: value})
@@ -191,3 +208,51 @@ def style_treeview(style, bg=L_CARD, fg=L_TEXT, heading_bg=L_PANEL,
               foreground=[('selected', heading_fg)])
     style.map("Custom.Treeview.Heading",
               background=[('active', heading_bg)])
+
+
+def maximize(window):
+    """Maximize a window cross-platform (macOS, Windows, Linux)."""
+    window.update_idletasks()
+    sys = _platform.system()
+    if sys == 'Darwin':
+        w = window.winfo_screenwidth()
+        h = window.winfo_screenheight()
+        window.geometry(f"{w}x{h}+0+0")
+    elif sys == 'Windows':
+        try:
+            window.state('zoomed')
+        except Exception:
+            w = window.winfo_screenwidth()
+            h = window.winfo_screenheight()
+            window.geometry(f"{w}x{h}+0+0")
+    else:
+        try:
+            window.attributes('-zoomed', True)
+        except Exception:
+            window.state('zoomed')
+
+
+def fade_in(window, duration=220):
+    """Fade a window in from fully transparent to fully opaque."""
+    try:
+        window.attributes('-alpha', 0.0)
+    except Exception:
+        return  # platform does not support alpha
+
+    steps = 14
+    step_ms = max(1, duration // steps)
+    delta = 1.0 / steps
+
+    def _tick(a):
+        try:
+            if not window.winfo_exists():
+                return
+        except Exception:
+            return
+        if a >= 1.0:
+            window.attributes('-alpha', 1.0)
+            return
+        window.attributes('-alpha', min(a, 1.0))
+        window.after(step_ms, lambda: _tick(a + delta))
+
+    window.after(20, lambda: _tick(0.0))
